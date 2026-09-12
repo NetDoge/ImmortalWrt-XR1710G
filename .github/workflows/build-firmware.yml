@@ -1,0 +1,167 @@
+name: Build XR1710G Custom Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release Type'
+        required: true
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - release
+          - prerelease
+      release_notes:
+        description: 'Release Notes'
+        required: false
+  push:
+    branches: [master]
+  repository_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate build version
+        id: version
+        run: |
+          # 定制版历史可能不含 immortalwrt 全量祖先，merge-base 失败时回退 unknown，不阻断编译
+          git remote add upstream https://github.com/immortalwrt/immortalwrt.git 2>/dev/null || true
+          git remote set-url upstream https://github.com/immortalwrt/immortalwrt.git
+          git fetch --no-tags --depth=200 upstream master || true
+
+          build_date=$(TZ=Asia/Shanghai date +'%Y%m%d')
+          repo_commit=$(git rev-parse --short=10 HEAD)
+          upstream_base=$(git merge-base HEAD upstream/master 2>/dev/null || true)
+          if [ -n "$upstream_base" ]; then
+            upstream_commit=$(git rev-parse --short=10 "$upstream_base")
+          else
+            upstream_commit="unknown"
+          fi
+          build_id="${build_date}-${repo_commit}-${upstream_commit}"
+          version_number="$build_id"
+          version_code="${repo_commit}-${upstream_commit}"
+
+          echo "date=$build_date" >> $GITHUB_OUTPUT
+          echo "build_id=$build_id" >> $GITHUB_OUTPUT
+          echo "repo_commit=$repo_commit" >> $GITHUB_OUTPUT
+          echo "upstream_commit=$upstream_commit" >> $GITHUB_OUTPUT
+          echo "version_number=$version_number" >> $GITHUB_OUTPUT
+          echo "version_code=$version_code" >> $GITHUB_OUTPUT
+          echo "Build version: ImmortalWrt NetDoge-XR1710G $version_number"
+
+      - name: Setup build environment
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang gcc g++ binutils bzip2 gawk gettext git libncurses-dev libssl-dev python3 python3-setuptools rsync unzip wget xsltproc zlib1g-dev file which perl sed make
+
+      - name: Install feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          # 列出本次定制新增包，确认已进入编译集
+          ./scripts/feeds list -r 2>/dev/null | grep -iE 'openclash|design|vlmcsd' || true
+          ls -la package/custom/*/Makefile
+          bash scripts/fix-stale-golang-host.sh
+
+      - name: Configure
+        run: |
+          cp config.seed .config
+          VERSION_DIST='ImmortalWrt NetDoge-XR1710G' \
+          BUILD_DATE='${{ steps.version.outputs.date }}' \
+          BUILD_ID='${{ steps.version.outputs.build_id }}' \
+          REPO_COMMIT='${{ steps.version.outputs.repo_commit }}' \
+          UPSTREAM_COMMIT='${{ steps.version.outputs.upstream_commit }}' \
+          VERSION_NUMBER='${{ steps.version.outputs.version_number }}' \
+          VERSION_CODE='${{ steps.version.outputs.version_code }}' \
+          bash scripts/set-build-version.sh .config
+          make defconfig
+          grep -E 'CONFIG_(IMAGEOPT|EXTRA_IMAGE_NAME|VERSIONOPT|VERSION_DIST|VERSION_NUMBER|VERSION_CODE)=' .config
+
+      - name: Download sources
+        run: make download -j$(nproc)
+
+      - name: Build Firmware
+        shell: bash
+        run: |
+          make -j2 world 2>&1 | tee build.log
+
+      - name: Check build status
+        if: always()
+        run: |
+          if [ -f build.log ]; then
+            bash scripts/summarize-build-errors.sh build.log || true
+            tail -100 build.log
+          fi
+          echo "=== List all files in bin/targets/airoha/an7581/ ==="
+          ls -la bin/targets/airoha/an7581/ 2>/dev/null || echo "No files found in an7581 directory"
+          echo "=== List all files in bin/targets/airoha/ ==="
+          ls -la bin/targets/airoha/ 2>/dev/null || echo "No files found in airoha directory"
+          echo "=== List all files in bin/targets/ ==="
+          ls -la bin/targets/ 2>/dev/null || echo "No files found in targets directory"
+          echo "=== List all files in bin/ ==="
+          ls -la bin/ 2>/dev/null || echo "No files found in bin directory"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: xr1710g-firmware
+          path: |
+            build.log
+            bin/targets/airoha/an7581/*.itb
+            bin/targets/airoha/an7581/config.buildinfo
+            bin/targets/airoha/an7581/feeds.buildinfo
+            bin/targets/airoha/an7581/version.buildinfo
+            bin/targets/airoha/an7581/sha256sums
+          retention-days: 30
+        if: always()
+
+      - name: Build release body
+        if: github.event.inputs.release_type != 'none'
+        id: release_body
+        env:
+          RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+        run: |
+          {
+            printf '%s\n' "$RELEASE_NOTES"
+            echo ""
+            echo "---"
+            echo ""
+            echo "NetDoge 定制版 XR1710G ImmortalWrt 云编译固件。"
+            echo ""
+            echo "内置：luci-theme-design 主题 + design-config 配置工具（含中文）、luci-app-openclash、KMS(vlmcsd)。"
+          } > /tmp/release_body.md
+          {
+            echo "body<<EOF"
+            cat /tmp/release_body.md
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        if: github.event.inputs.release_type != 'none'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ format('{0}-{1}', steps.version.outputs.date, steps.version.outputs.repo_commit) }}
+          name: ${{ format('{0} - XR1710G Build ({1})', steps.version.outputs.date, steps.version.outputs.repo_commit) }}
+          body: ${{ steps.release_body.outputs.body }}
+          draft: false
+          prerelease: ${{ github.event.inputs.release_type == 'prerelease' }}
+          files: |
+            bin/targets/airoha/an7581/*.itb
+            bin/targets/airoha/an7581/config.buildinfo
+            bin/targets/airoha/an7581/feeds.buildinfo
+            bin/targets/airoha/an7581/version.buildinfo
+            bin/targets/airoha/an7581/sha256sums
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
