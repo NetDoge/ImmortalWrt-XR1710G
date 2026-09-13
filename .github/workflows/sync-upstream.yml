@@ -1,8 +1,9 @@
 name: Sync Upstream ImmortalWrt
 
 on:
+  # GitHub Actions schedule cron 为 UTC：19:00 UTC = 凌晨 3 点 UTC+8
   schedule:
-    - cron: '0 3 */3 * *'
+    - cron: '0 19 */3 * *'
   workflow_dispatch:
 
 permissions:
