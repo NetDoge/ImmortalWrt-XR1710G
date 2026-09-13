@@ -70,6 +70,17 @@ jobs:
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 摘掉依赖在当前 target/feed 不存在的上游包，消除 metadata dump 阶段
+          # "has a dependency on X, which does not exist" WARNING：
+          # bmx7 全家桶（routing feed 未在 airoha 提供）、dcwapd/babeld 无对应服务端、
+          # gst1-plugins-base 缺 video feed 的 libmesa/libwayland/libgraphene。
+          # 均未选入 .config，删的只是 feeds install 生成的软链。
+          for p in bmx7-dnsupdate gst1-plugins-base prometheus-node-exporter-lua; do
+            rm -f "package/feeds/packages/$p"
+          done
+          for p in luci-app-babeld luci-app-bmx7 luci-app-dcwapd; do
+            rm -f "package/feeds/luci/$p"
+          done
           # 列出本次定制新增包，确认已进入编译集
           ./scripts/feeds list -r 2>/dev/null | grep -iE 'openclash|design|vlmcsd' || true
           ls -la package/custom/*/Makefile
