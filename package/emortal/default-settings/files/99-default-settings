@@ -37,4 +37,13 @@ case "$DISTRIB_TARGET" in
 	;;
 esac
 
+# 首次启动设置 root 默认密码 admin
+if ! uci -q get system.@imm_init[0].root_pw > "/dev/null"; then
+	echo -e "admin\nadmin" | passwd root > "/dev/null" 2>&1
+	uci -q batch <<-EOF
+		set system.@imm_init[0].root_pw="1"
+		commit system
+	EOF
+fi
+
 exit 0

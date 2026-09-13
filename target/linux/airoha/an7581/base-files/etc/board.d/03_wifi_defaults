@@ -16,9 +16,9 @@ case "$board" in
 gemtek,xr1710g-ubi|\
 gemtek,w1700k-ubi)
 	ucidef_set_country 'US'
-	ucidef_set_wireless 2g 'ImmortalWrt-2G' 'psk2' '12345678'
-	ucidef_set_wireless 5g 'ImmortalWrt-5G' 'sae-mixed' '12345678'
-	ucidef_set_wireless 6g 'ImmortalWrt-6G' 'sae' '12345678'
+	ucidef_set_wireless 2g 'XR1710G' 'psk2' '12345678'
+	ucidef_set_wireless 5g 'XR1710G-5G' 'sae-mixed' '12345678'
+	ucidef_set_wireless 6g 'XR1710G-6G' 'sae' '12345678'
 	;;
 esac
 

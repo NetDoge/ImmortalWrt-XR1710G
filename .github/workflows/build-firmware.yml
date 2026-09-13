@@ -15,9 +15,6 @@ on:
       release_notes:
         description: 'Release Notes'
         required: false
-  push:
-    branches: [master]
-  repository_dispatch:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
