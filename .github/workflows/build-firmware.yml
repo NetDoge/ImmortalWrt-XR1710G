@@ -92,6 +92,28 @@ jobs:
       - name: Download sources
         run: make download -j$(nproc)
 
+      - name: Diagnose custom packages (V=s)
+        id: diagnose
+        run: |
+          set +e
+          make package/custom/luci-theme-design/compile V=s -j1
+          rc1=$?
+          make package/custom/luci-app-design-config/compile V=s -j1
+          rc2=$?
+          echo "theme_rc=$rc1 config_rc=$rc2"
+          echo "logs/"
+          find logs -type f | sort || true
+          for f in logs/package/custom/luci-theme-design/compile.txt logs/package/custom/luci-app-design-config/compile.txt; do
+            if [ -f "$f" ]; then
+              echo "===== $f (tail 120) ====="
+              tail -120 "$f"
+            fi
+          done
+          if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ]; then
+            echo "CUSTOM_PACKAGE_FAILED"
+            exit 42
+          fi
+
       - name: Build Firmware
         shell: bash
         run: |
@@ -119,6 +141,7 @@ jobs:
           name: xr1710g-firmware
           path: |
             build.log
+            logs/package/custom/**
             bin/targets/airoha/an7581/*.itb
             bin/targets/airoha/an7581/config.buildinfo
             bin/targets/airoha/an7581/feeds.buildinfo
