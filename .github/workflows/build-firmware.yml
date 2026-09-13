@@ -96,20 +96,17 @@ jobs:
         id: diagnose
         run: |
           set +e
-          # 单包 compile 不会自动装齐 tools/toolchain/target，分阶段顺序补 world 前置；
-          # target/linux 失败时 -j 会吞报错，用 -j1 V=s 拿真实错误
+          # 单包 compile 不会自动装齐 tools/toolchain/target，分阶段顺序补前置；
+          # 只要 target/compile（提供内核 build_dir），不能 target/install——那步要
+          # mksquashfs 打包 root-airoha，而 rootfs 由 package/install 生成，这里还没跑。
           make tools/install -j$(nproc)
           rc1=$?
           make toolchain/install -j$(nproc)
           rc2=$?
-          make target/install V=s -j1
+          make target/compile -j$(nproc)
           rc3=$?
-          echo "prereq_rc: tools=$rc1 toolchain=$rc2 target=$rc3"
+          echo "prereq_rc: tools=$rc1 toolchain=$rc2 target_compile=$rc3"
           if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ] || [ "$rc3" -ne 0 ]; then
-            echo "===== logs/target dump ====="
-            find logs -type f \( -path '*target*' -o -path '*linux*' \) | sort | while read -r f; do
-              echo "----- $f -----"; tail -80 "$f"
-            done
             echo "PREREQ_FAILED"
             exit 41
           fi
@@ -122,8 +119,8 @@ jobs:
           find logs -type f | sort || true
           for f in logs/package/custom/luci-theme-design/compile.txt logs/package/custom/luci-app-design-config/compile.txt; do
             if [ -f "$f" ]; then
-              echo "===== $f (tail 120) ====="
-              tail -120 "$f"
+              echo "===== $f (tail 150) ====="
+              tail -150 "$f"
             fi
           done
           if [ "$rc4" -ne 0 ] || [ "$rc5" -ne 0 ]; then
