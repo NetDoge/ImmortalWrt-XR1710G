@@ -96,18 +96,28 @@ jobs:
         id: diagnose
         run: |
           set +e
-          # 单包 compile 不会自动装齐 tools/toolchain/target，先补齐 world 的前置阶段
-          make tools/install toolchain/install target/install -j$(nproc)
-          rc0=$?
-          if [ "$rc0" -ne 0 ]; then
-            echo "PREREQ_FAILED rc=$rc0"
+          # 单包 compile 不会自动装齐 tools/toolchain/target，分阶段顺序补 world 前置；
+          # target/linux 失败时 -j 会吞报错，用 -j1 V=s 拿真实错误
+          make tools/install -j$(nproc)
+          rc1=$?
+          make toolchain/install -j$(nproc)
+          rc2=$?
+          make target/install V=s -j1
+          rc3=$?
+          echo "prereq_rc: tools=$rc1 toolchain=$rc2 target=$rc3"
+          if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ] || [ "$rc3" -ne 0 ]; then
+            echo "===== logs/target dump ====="
+            find logs -type f \( -path '*target*' -o -path '*linux*' \) | sort | while read -r f; do
+              echo "----- $f -----"; tail -80 "$f"
+            done
+            echo "PREREQ_FAILED"
             exit 41
           fi
           make package/custom/luci-theme-design/compile V=s -j1
-          rc1=$?
+          rc4=$?
           make package/custom/luci-app-design-config/compile V=s -j1
-          rc2=$?
-          echo "theme_rc=$rc1 config_rc=$rc2"
+          rc5=$?
+          echo "theme_rc=$rc4 config_rc=$rc5"
           echo "logs/"
           find logs -type f | sort || true
           for f in logs/package/custom/luci-theme-design/compile.txt logs/package/custom/luci-app-design-config/compile.txt; do
@@ -116,7 +126,7 @@ jobs:
               tail -120 "$f"
             fi
           done
-          if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ]; then
+          if [ "$rc4" -ne 0 ] || [ "$rc5" -ne 0 ]; then
             echo "CUSTOM_PACKAGE_FAILED"
             exit 42
           fi
@@ -148,7 +158,7 @@ jobs:
           name: xr1710g-firmware
           path: |
             build.log
-            logs/package/custom/**
+            logs/**
             bin/targets/airoha/an7581/*.itb
             bin/targets/airoha/an7581/config.buildinfo
             bin/targets/airoha/an7581/feeds.buildinfo
