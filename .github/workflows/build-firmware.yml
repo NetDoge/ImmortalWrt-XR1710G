@@ -96,6 +96,13 @@ jobs:
         id: diagnose
         run: |
           set +e
+          # 单包 compile 不会自动装齐 tools/toolchain/target，先补齐 world 的前置阶段
+          make tools/install toolchain/install target/install -j$(nproc)
+          rc0=$?
+          if [ "$rc0" -ne 0 ]; then
+            echo "PREREQ_FAILED rc=$rc0"
+            exit 41
+          fi
           make package/custom/luci-theme-design/compile V=s -j1
           rc1=$?
           make package/custom/luci-app-design-config/compile V=s -j1
