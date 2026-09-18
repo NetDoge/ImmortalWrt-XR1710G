@@ -1,0 +1,83 @@
+name: Sync Upstream ImmortalWrt
+
+on:
+  # GitHub Actions schedule cron 为 UTC：19:00 UTC = 凌晨 3 点 UTC+8
+  schedule:
+    - cron: '0 19 */3 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (overlay + scripts only, no full history needed)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Configure Git
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+
+      - name: Compose snapshot from latest upstream + overlay
+        env:
+          UPSTREAM_REPO: "https://github.com/naoki66/ImmortalWrt-for-Gemtek-XR1710G.git"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "== 取上游最新树 =="
+          git clone --bare --filter=blob:none "$UPSTREAM_REPO" /tmp/upstream.git 2>&1 | tail -2
+          UP_HEAD=$(git -C /tmp/upstream.git rev-parse master)
+          echo "upstream_head=$UP_HEAD"
+
+          echo "== 上游树展开到工作区 =="
+          git -C /tmp/upstream.git archive master | tar -x -C .
+          rm -rf /tmp/upstream.git
+
+          echo "== 叠加定制 overlay =="
+          cp -a .custom-overlay/./ ./
+
+          echo "== 记录本次同步的上游版本 =="
+          echo "$UP_HEAD" > .upstream-linked
+          echo "$UP_HEAD" > .custom-overlay/upstream.rev
+
+          echo "== 树是否有变化（与当前 master 比较） =="
+          git add -A
+          if git diff --cached --quiet; then
+            echo "CHANGED=false" >> "$GITHUB_ENV"
+            git reset -q
+          else
+            echo "CHANGED=true" >> "$GITHUB_ENV"
+            git reset -q
+          fi
+          echo "UP_HEAD=$UP_HEAD" >> "$GITHUB_ENV"
+
+      - name: Create orphan snapshot (only if changed)
+        if: env.CHANGED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          TREE_HASH=$(git write-tree)
+          MSG="customize: 同步上游 $UP_HEAD (naoki66), 重放 NetDoge 定制"
+          COMMIT=$(echo "$MSG" | git commit-tree "$TREE_HASH")
+          git update-ref refs/heads/master "$COMMIT"
+          echo "composed=$COMMIT tree=$TREE_HASH up=$UP_HEAD"
+          echo "== 推送孤儿快照到本仓 master =="
+          git push --force origin master
+          echo "== 完成 =="
+          git log --oneline -1 master
+
+      - name: No update
+        if: env.CHANGED == 'false'
+        run: echo "上游无变化（$UP_HEAD），跳过合成与推送"
+
+      - name: Show result
+        if: always()
+        run: git log --oneline -1 master || true

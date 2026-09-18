@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+/dts-v1/;
+#include "mt7622-tplink-tl-xdr-common.dtsi"
+
+/ {
+	model = "TP-Link TL-XDR3230 v1";
+	compatible = "tplink,tl-xdr3230-v1", "mediatek,mt7622";
+};
+
+&switch_mdio {
+	phy4: ethernet-phy@4 {
+		reg = <4>;
+	};
+};
+
+&switch_ports {
+	port@1 {
+		label = "lan1";
+	};
+
+	port@2 {
+		label = "lan2";
+	};
+
+	port@3 {
+		label = "lan3";
+	};
+
+	port@4 {
+		reg = <4>;
+		label = "wan";
+		nvmem-cells = <&macaddr_factory_d81c 1>;
+		nvmem-cell-names = "mac-address";
+		phy-handle = <&phy4>;
+	};
+};

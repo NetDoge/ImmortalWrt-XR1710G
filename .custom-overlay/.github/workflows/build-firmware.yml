@@ -1,0 +1,205 @@
+name: Build XR1710G Custom Firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release Type'
+        required: true
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - release
+          - prerelease
+      release_notes:
+        description: 'Release Notes'
+        required: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate build version
+        id: version
+        run: |
+          # 定制版是孤儿快照（无共同祖先），不能用 merge-base 找上游。
+          # 上游版本由 sync-upstream 写入 .upstream-linked（= 本次合成的 naoki66 上游 commit）。
+          build_date=$(TZ=Asia/Shanghai date +'%Y%m%d')
+          repo_commit=$(git rev-parse --short=10 HEAD)
+          upstream_commit="$(cat .upstream-linked 2>/dev/null | cut -c1-10 || echo unknown)"
+          build_id="${build_date}-${repo_commit}-${upstream_commit}"
+          version_number="$build_id"
+          version_code="${repo_commit}-${upstream_commit}"
+
+          echo "date=$build_date" >> $GITHUB_OUTPUT
+          echo "build_id=$build_id" >> $GITHUB_OUTPUT
+          echo "repo_commit=$repo_commit" >> $GITHUB_OUTPUT
+          echo "upstream_commit=$upstream_commit" >> $GITHUB_OUTPUT
+          echo "version_number=$version_number" >> $GITHUB_OUTPUT
+          echo "version_code=$version_code" >> $GITHUB_OUTPUT
+          echo "Build version: ImmortalWrt NetDoge-XR1710G $version_number"
+
+      - name: Setup build environment
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang gcc g++ binutils bzip2 ccache gawk gettext git libncurses-dev libssl-dev python3 python3-setuptools rsync unzip wget xsltproc zlib1g-dev file which perl sed make
+
+      - name: Install feeds
+        run: |
+          ./scripts/feeds update -a
+          # 在 feeds install 之前，直接从 feed 检出里剔除缺依赖的上游包，
+          # 让 package 扫描根本碰不到它们，从源头消除
+          # "has a dependency on X, which does not exist" WARNING。
+          # 这些包在 airoha/mt7988 target 均无依赖可提供（bmx7 全家桶、
+          # dcwapd/babeld 无服务端、gst1-plugins-base 缺 video feed 的
+          # libmesa/libwayland/libgraphene、prometheus-node-exporter-lua 缺 bmx7），
+          # 且全部未选入 config.seed。删的只是 git 检出的 feed 源目录。
+          for p in bmx7 bmx7-dnsupdate bmx7-iwinfo bmx7-json bmx7-tun bmx7-uci-config gst1-plugins-base prometheus-node-exporter-lua luci-app-babeld luci-app-bmx7 luci-app-dcwapd; do
+            find feeds -type d -name "$p" -prune -exec rm -rf {} + 2>/dev/null || true
+          done
+          ./scripts/feeds install -a
+          # 列出本次定制新增包，确认已进入编译集
+          ./scripts/feeds list -r 2>/dev/null | grep -iE 'openclash|design|vlmcsd' || true
+          ls -la package/custom/*/Makefile
+          bash scripts/fix-stale-golang-host.sh
+
+      - name: Configure
+        run: |
+          cp config.seed .config
+          VERSION_DIST='ImmortalWrt NetDoge-XR1710G' \
+          BUILD_DATE='${{ steps.version.outputs.date }}' \
+          BUILD_ID='${{ steps.version.outputs.build_id }}' \
+          REPO_COMMIT='${{ steps.version.outputs.repo_commit }}' \
+          UPSTREAM_COMMIT='${{ steps.version.outputs.upstream_commit }}' \
+          VERSION_NUMBER='${{ steps.version.outputs.version_number }}' \
+          VERSION_CODE='${{ steps.version.outputs.version_code }}' \
+          bash scripts/set-build-version.sh .config
+          make defconfig
+          grep -E 'CONFIG_(IMAGEOPT|EXTRA_IMAGE_NAME|VERSIONOPT|VERSION_DIST|VERSION_NUMBER|VERSION_CODE)=' .config
+
+      - name: Download sources
+        run: make download -j$(nproc)
+
+      - name: Diagnose custom packages (V=s)
+        id: diagnose
+        run: |
+          set +e
+          # 单包 compile 不会自动装齐 tools/toolchain/target，分阶段顺序补前置；
+          # 只要 target/compile（提供内核 build_dir），不能 target/install——那步要
+          # mksquashfs 打包 root-airoha，而 rootfs 由 package/install 生成，这里还没跑。
+          make tools/install -j$(nproc)
+          rc1=$?
+          make toolchain/install -j$(nproc)
+          rc2=$?
+          make target/compile -j$(nproc)
+          rc3=$?
+          echo "prereq_rc: tools=$rc1 toolchain=$rc2 target_compile=$rc3"
+          if [ "$rc1" -ne 0 ] || [ "$rc2" -ne 0 ] || [ "$rc3" -ne 0 ]; then
+            echo "PREREQ_FAILED"
+            exit 41
+          fi
+          make package/custom/luci-theme-design/compile V=s -j1
+          rc4=$?
+          make package/custom/luci-app-design-config/compile V=s -j1
+          rc5=$?
+          echo "theme_rc=$rc4 config_rc=$rc5"
+          echo "logs/"
+          find logs -type f | sort || true
+          for f in logs/package/custom/luci-theme-design/compile.txt logs/package/custom/luci-app-design-config/compile.txt; do
+            if [ -f "$f" ]; then
+              echo "===== $f (tail 150) ====="
+              tail -150 "$f"
+            fi
+          done
+          if [ "$rc4" -ne 0 ] || [ "$rc5" -ne 0 ]; then
+            echo "CUSTOM_PACKAGE_FAILED"
+            exit 42
+          fi
+
+      - name: Build Firmware
+        shell: bash
+        run: |
+          # 诊断步骤已用 -j$(nproc) 铺好 tools/toolchain/target 的 stamp，这里增量；
+          # runner 4 核，world 用满核（旧配置 -j2 浪费一半）
+          make -j$(nproc) world 2>&1 | tee build.log
+
+      - name: Check build status
+        if: always()
+        run: |
+          if [ -f build.log ]; then
+            bash scripts/summarize-build-errors.sh build.log || true
+            tail -100 build.log
+          fi
+          echo "=== List all files in bin/targets/airoha/an7581/ ==="
+          ls -la bin/targets/airoha/an7581/ 2>/dev/null || echo "No files found in an7581 directory"
+          echo "=== List all files in bin/targets/airoha/ ==="
+          ls -la bin/targets/airoha/ 2>/dev/null || echo "No files found in airoha directory"
+          echo "=== List all files in bin/targets/ ==="
+          ls -la bin/targets/ 2>/dev/null || echo "No files found in targets directory"
+          echo "=== List all files in bin/ ==="
+          ls -la bin/ 2>/dev/null || echo "No files found in bin directory"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: xr1710g-firmware
+          path: |
+            build.log
+            logs/**
+            bin/targets/airoha/an7581/*.itb
+            bin/targets/airoha/an7581/config.buildinfo
+            bin/targets/airoha/an7581/feeds.buildinfo
+            bin/targets/airoha/an7581/version.buildinfo
+            bin/targets/airoha/an7581/sha256sums
+          retention-days: 30
+        if: always()
+
+      - name: Build release body
+        if: github.event.inputs.release_type != 'none'
+        id: release_body
+        env:
+          RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+        run: |
+          {
+            printf '%s\n' "$RELEASE_NOTES"
+            echo ""
+            echo "---"
+            echo ""
+            echo "NetDoge 定制版 XR1710G ImmortalWrt 云编译固件。"
+            echo ""
+            echo "内置：luci-theme-design 主题 + design-config 配置工具（含中文）、luci-app-openclash、KMS(vlmcsd)。"
+          } > /tmp/release_body.md
+          {
+            echo "body<<EOF"
+            cat /tmp/release_body.md
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        if: github.event.inputs.release_type != 'none'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ format('{0}-{1}', steps.version.outputs.date, steps.version.outputs.repo_commit) }}
+          name: ${{ format('{0} - XR1710G Build ({1})', steps.version.outputs.date, steps.version.outputs.repo_commit) }}
+          body: ${{ steps.release_body.outputs.body }}
+          draft: false
+          prerelease: ${{ github.event.inputs.release_type == 'prerelease' }}
+          files: |
+            bin/targets/airoha/an7581/*.itb
+            bin/targets/airoha/an7581/config.buildinfo
+            bin/targets/airoha/an7581/feeds.buildinfo
+            bin/targets/airoha/an7581/version.buildinfo
+            bin/targets/airoha/an7581/sha256sums
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
