@@ -17,7 +17,6 @@
 - **管理地址**：`192.168.50.1` → `192.168.8.1`
 - **默认密码**：admin（首次启动写入，只执行一次，之后你改的不覆盖）
 - **Wi-Fi**：SSID 改成 `XR1710G*`，加密档位沿用上游（2.4G=WPA2 / 5G=WPA2+WPA3 / 6G=WPA3）
-- **默认主题**：design（含中文包）
 - **预装**：OpenClash、SmartDNS、ZeroTier、DDNS、UPnP、vlmcsd、ttyd、autoreboot、timewol、wifischedule、wireguard、Airoha 专属工具（NPU / 风扇 / FlowSense / Factory / Recovery）等
 - **精简**：去掉了 lucky、ddns-go、msd_lite、wechatpush（不用或重复）
 - **默认开启**：firewall4 软件+硬件 flow offload，BBR
@@ -70,14 +69,13 @@ bash scripts/summarize-build-errors.sh build.log
 - `config.seed` — 完整构建配置（含所有包与默认开关）
 - `target/linux/airoha/dts/an7581-xr1710g-ubi.dts` — 独立设备树
 - `target/linux/airoha/patches-6.18/`、`target/linux/generic/pending-6.18/` — 内核/网络补丁
-- `package/custom/` — design 主题 + design-config
 - `package/emortal/default-settings/files/99-default-settings` — 首次启动默认配置
 
 ## 致谢
 
 - [naoki66/ImmortalWrt-for-Gemtek-XR1710G](https://github.com/naoki66/ImmortalWrt-for-Gemtek-XR1710G) — fork 基础
 - [immortalwrt/immortalwrt](https://github.com/immortalwrt/immortalwrt) — ImmortalWrt 主项目
-- [rchen14b/luci-app-airoha-npu](https://github.com/rchen14b/luci-app-airoha-npu)、[Gilly1970/Gemtek-W1700K](https://github.com/Gilly1970/Gemtek-W1700K)、[gngpp/luci-app-design-config](https://github.com/gngpp/luci-app-design-config) — 部分应用来源
+- [rchen14b/luci-app-airoha-npu](https://github.com/rchen14b/luci-app-airoha-npu)、[Gilly1970/Gemtek-W1700K](https://github.com/Gilly1970/Gemtek-W1700K) — 部分应用来源
 - [YYH2913/openwrt](https://github.com/YYH2913/openwrt)、[hurrian/openwrt-w1700k](https://github.com/hurrian/openwrt-w1700k)、[lvcdy/openwrt_xr1710g](https://github.com/lvcdy/openwrt_xr1710g) — 移植参考
 
 ## 许可证

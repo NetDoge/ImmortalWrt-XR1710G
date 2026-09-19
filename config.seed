@@ -9182,9 +9182,6 @@ CONFIG_PACKAGE_watchcat=y
 # end of Xorg
 
 #
-# Customization by NetDoge - luci-theme-design stack
+# Customization by NetDoge - luci-i18n-smartdns
 #
-CONFIG_PACKAGE_luci-theme-design=y
-CONFIG_PACKAGE_luci-app-design-config=y
-CONFIG_PACKAGE_luci-i18n-design-config-zh-cn=y
 CONFIG_PACKAGE_luci-i18n-smartdns-zh-cn=y

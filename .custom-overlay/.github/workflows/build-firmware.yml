@@ -70,7 +70,7 @@ jobs:
           done
           ./scripts/feeds install -a
           # 列出本次定制新增包，确认已进入编译集
-          ./scripts/feeds list -r 2>/dev/null | grep -iE 'openclash|design|vlmcsd' || true
+          ./scripts/feeds list -r 2>/dev/null | grep -iE 'openclash|vlmcsd' || true
           ls -la package/custom/*/Makefile
           bash scripts/fix-stale-golang-host.sh
 
@@ -109,24 +109,6 @@ jobs:
             echo "PREREQ_FAILED"
             exit 41
           fi
-          make package/custom/luci-theme-design/compile V=s -j1
-          rc4=$?
-          make package/custom/luci-app-design-config/compile V=s -j1
-          rc5=$?
-          echo "theme_rc=$rc4 config_rc=$rc5"
-          echo "logs/"
-          find logs -type f | sort || true
-          for f in logs/package/custom/luci-theme-design/compile.txt logs/package/custom/luci-app-design-config/compile.txt; do
-            if [ -f "$f" ]; then
-              echo "===== $f (tail 150) ====="
-              tail -150 "$f"
-            fi
-          done
-          if [ "$rc4" -ne 0 ] || [ "$rc5" -ne 0 ]; then
-            echo "CUSTOM_PACKAGE_FAILED"
-            exit 42
-          fi
-
       - name: Build Firmware
         shell: bash
         run: |
@@ -178,7 +160,7 @@ jobs:
             echo ""
             echo "NetDoge 定制版 XR1710G ImmortalWrt 云编译固件。"
             echo ""
-            echo "内置：luci-theme-design 主题 + design-config 配置工具（含中文）、luci-app-openclash、KMS(vlmcsd)。"
+            echo "内置：luci-app-openclash、KMS(vlmcsd)。"
           } > /tmp/release_body.md
           {
             echo "body<<EOF"

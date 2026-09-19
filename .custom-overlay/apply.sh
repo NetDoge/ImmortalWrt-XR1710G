@@ -23,7 +23,6 @@ for f in config.seed README.md \
          .github/workflows/build-firmware.yml \
          .github/workflows/sync-upstream.yml \
          package/emortal/default-settings/files/99-default-settings \
-         package/custom \
          target/linux/airoha/an7581/base-files/etc/board.d/02_network \
          target/linux/airoha/an7581/base-files/etc/board.d/03_wifi_defaults; do
   mkdir -p "$WORK/$(dirname "$f")"
